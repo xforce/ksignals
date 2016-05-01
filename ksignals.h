@@ -9,11 +9,11 @@
 namespace ksignals
 {
     template<int I> struct placeholder {};
-} // knet::
+} // ksignals::
 
 namespace std {
     template<int I>
-    struct is_placeholder< ::knet::internal::placeholder<I>> : std::integral_constant<int, I> {};
+    struct is_placeholder< ::ksignals::placeholder<I>> : std::integral_constant<int, I> {};
 } // std::
 
 namespace ksignals {
