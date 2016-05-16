@@ -82,6 +82,10 @@ namespace ksignals {
 
        void remove(Event<Args...> *e)
        {
+            if (v.empty()) {
+               return;
+            }
+           
            v.erase(std::remove(std::begin(v), std::end(v), e), std::end(v));
        }
 
