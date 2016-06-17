@@ -66,14 +66,14 @@ namespace ksignals {
            //e.connect(*this);
        }
 
-      /* virtual ~EventDelegate()
+       virtual ~EventDelegate()
        {
            for (auto e : v) {
                 e->disconnect(*this);
            }
 
            v.clear();
-       };*/
+       };
 
        void add(Event<Args...> *e)
        {
@@ -83,9 +83,9 @@ namespace ksignals {
        void remove(Event<Args...> *e)
        {
             if (v.empty()) {
-               return;
+                return;
             }
-           
+
            v.erase(std::remove(std::begin(v), std::end(v), e), std::end(v));
        }
 
