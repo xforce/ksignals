@@ -183,51 +183,52 @@ namespace ksignals {
            }
        }
 
-       void connect(EventDelegate<Args...> &ed)
+	   EventDelegate<Args...> & connect(EventDelegate<Args...> &ed)
        {
            ed.add(this);
            things.push_back(&ed);
+		   return ed;
        }
 
 
 
        template <typename T, typename F, typename... FArgs>
-       typename std::enable_if<std::is_class<T>::value, void>::type
+       typename std::enable_if<std::is_class<T>::value, EventDelegate<Args...> &>::type
            connect(T* t, F &&fn, FArgs&&... args)
        {
            // T is class
-           connect(easy_bind(fn, t, std::forward<FArgs>(args)...));
+           return connect(easy_bind(fn, t, std::forward<FArgs>(args)...));
        }
 
        template <typename T, typename F, typename... FArgs>
-       typename std::enable_if<!std::is_class<T>::value, void>::type
+       typename std::enable_if<!std::is_class<T>::value, EventDelegate<Args...> &>::type
            connect(T* t, F && arg0, FArgs&&... args)
        {
-           connect(easy_bind(t, arg0, std::forward<FArgs>(args)...));
+			return connect(easy_bind(t, arg0, std::forward<FArgs>(args)...));
        }
 
        template <typename T, typename F>
-       typename std::enable_if<!std::is_class<T>::value, void>::type
+       typename std::enable_if<!std::is_class<T>::value, EventDelegate<Args...> &>::type
            connect(T* t)
        {
            auto f = new EventDelegateFunctionPointer<T, Args...>(*this, t);
-           connect<Args...>(f);
+          return connect<Args...>(f);
        }
 
        template <typename T>
-       void connect(T* t, void (T::*fn)(Args...))
+	   EventDelegate<Args...> & connect(T* t, void (T::*fn)(Args...))
        {
            auto f = new EventDelegateMemberFunction<T, Args...>(*this, t, fn);
-           connect<Args...>(f);
+           return connect<Args...>(f);
        }
 
        template<typename F>
-       void connect(F && fn)
+	   EventDelegate<Args...> & connect(F && fn)
        {
            // As this is either std::bind result
            // Or a lambda we can just pass it to the std::function overload
            //
-           connect(std::function<void(Args...)>(std::forward<F>(fn)), *this);
+           return connect(std::function<void(Args...)>(std::forward<F>(fn)), *this);
        }
 
        template <typename T>
@@ -237,16 +238,16 @@ namespace ksignals {
        };
 
        //template<typename... Args>
-       void connect(std::function<void(Args...)> fn, Event<Args...> & /* Trick to avoid recursion */)
+	   EventDelegate<Args...> & connect(std::function<void(Args...)> fn, Event<Args...> & /* Trick to avoid recursion */)
        {
            auto f = new EventDelegateFunctionObject<Args...>(*this, fn);
-           connect<Args...>(f);
+           return connect<Args...>(f);
        }
 
        //template<typename... Args>
-       void connect(EventDelegate<Args...> *ed)
+	   EventDelegate<Args...> & connect(EventDelegate<Args...> *ed)
        {
-           connect(*ed);
+           return connect(*ed);
        }
 
        void disconnect(EventDelegate<Args...> &ed)
@@ -298,7 +299,8 @@ namespace ksignals {
        }
 
        template<typename F, typename... Args>
-       void connect(Event<Args...> &e, F && fn)
+	   std::enable_if_t<!std::is_pointer<std::decay_t<F>>::value>
+       connect(Event<Args...> &e, F &&fn)
        {
            // As this is either std::bind result
            // Or a lambda we can just pass it to the std::function overload
