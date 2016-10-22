@@ -287,7 +287,7 @@ namespace ksignals {
 		{
 			event_delegate_ptr_tag tag;
 			auto f = new EventDelegateMemberFunction<T, _Rx, Args...>(*this, t, fn);
-			return connect(fstatic_cast<EventDelegate<_Rx, Args...> *>(f), tag);
+			return connect(static_cast<EventDelegate<_Rx, Args...> *>(f), tag);
 		}
 
 		template<typename F>
@@ -362,7 +362,7 @@ namespace ksignals {
 		}
 
 		template <typename T, typename _Rx = void, typename... Args>
-		void connect(Event<Args...> &e, T* t, void (T::*fn)(Args...))
+		void connect(Event<_Rx, Args...> &e, T* t, _Rx (T::*fn)(Args...))
 		{
 			auto f = new EventDelegateMemberFunction<T, Args...>(e, t, fn);
 			connect<Args...>(e, f);
