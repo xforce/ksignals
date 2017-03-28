@@ -5,6 +5,7 @@
 #include <vector>
 #include <type_traits>
 #include <utility>
+#include <shared_mutex>
 
 namespace ksignals
 {
@@ -52,16 +53,16 @@ namespace ksignals {
 	};
 
 	template <typename _Rx = void, typename... Args>
-	class Event;
+	class EventBase;
 
 	template<typename _Rx = void, typename... Args>
 	class EventDelegate : public EventDelegateBase
 	{
 	private:
-		std::vector<Event<_Rx, Args...>*> v;
+		std::vector<EventBase<_Rx, Args...>*> v;
 
 	public:
-		EventDelegate(Event<_Rx, Args...> &)
+		EventDelegate(EventBase<_Rx, Args...> &)
 		{
 			//e.connect(*this);
 		}
@@ -75,12 +76,12 @@ namespace ksignals {
 			v.clear();
 		};
 
-		void add(Event<_Rx, Args...> *e)
+		void add(EventBase<_Rx, Args...> *e)
 		{
 			v.push_back(e);
 		}
 
-		void remove(Event<_Rx, Args...> *e)
+		void remove(EventBase<_Rx, Args...> *e)
 		{
 			if (v.empty()) {
 				return;
@@ -100,7 +101,7 @@ namespace ksignals {
 		T * t;
 		_Rx(T::*f)(Args...);
 	public:
-		EventDelegateMemberFunction(Event<_Rx, Args...> &e, T *t, _Rx(T::*f)(Args...))
+		EventDelegateMemberFunction(EventBase<_Rx, Args...> &e, T *t, _Rx(T::*f)(Args...))
 			: EventDelegate<_Rx, Args...>(e)
 		{
 			this->t = t;
@@ -123,7 +124,7 @@ namespace ksignals {
 		std::function<_Rx(Args...)> fn;
 
 	public:
-		EventDelegateFunctionObject(Event<_Rx, Args...> &e, std::function<_Rx(Args...)> f)
+		EventDelegateFunctionObject(EventBase<_Rx, Args...> &e, std::function<_Rx(Args...)> f)
 			: EventDelegate<_Rx, Args...>(e),
 			fn(f)
 		{ }
@@ -140,7 +141,7 @@ namespace ksignals {
 	{
 		T * _function = nullptr;
 	public:
-		EventDelegateFunctionPointer(Event<_Rx, Args...> &e, T * function)
+		EventDelegateFunctionPointer(EventBase<_Rx, Args...> &e, T * function)
 			: EventDelegate<_Rx, Args...>(e),
 			_function(function)
 		{
@@ -158,10 +159,14 @@ namespace ksignals {
 	};
 
 	template <typename _Rx, typename... Args>
-	class Event
+	class EventBase
 	{
 	private:
 		std::vector<EventDelegate<_Rx, Args...>*> things;
+        std::vector<EventDelegate<_Rx, Args...>*> _staging_connect_events;
+        std::vector<EventDelegate<_Rx, Args...>*> _staging_disconnect_events;
+        std::mutex _staging_mutex;
+        std::shared_mutex _mutex;
 
 		struct event_delegate_ptr_tag { };
 
@@ -175,18 +180,18 @@ namespace ksignals {
 			MAX_RESULT,
 		};
 
-		Event() = default;
-		~Event()
+        EventBase() = default;
+		~EventBase()
 		{
 			for (auto i : things) {
 				i->remove(this);
 			}
 		}
 
-		Event& operator=(Event &&) = default;
+        EventBase& operator=(EventBase &&) = default;
 
-		Event& operator = (const Event&) = delete;
-		Event(const Event &) = delete;
+        EventBase& operator = (const EventBase&) = delete;
+        EventBase(const EventBase&) = delete;
 
 		auto operator()(Args... args)
 		{
@@ -195,66 +200,135 @@ namespace ksignals {
 
 		template<typename _Rx_ = _Rx, std::enable_if_t<std::is_same<_Rx_, void>::value>* = nullptr>
 		void invoke(Args... args) {
-			// Loop through all connected things and call
-			for (auto s : things) {
-				s->invoke(std::forward<Args>(args)...);
-			}
+            {
+                std::shared_lock<std::shared_mutex> lock(_mutex);
+                // Loop through all connected things and call
+                for (auto s : things) {
+                    s->invoke(std::forward<Args>(args)...);
+                }
+            }
+            if (_mutex.try_lock()) {
+                std::lock_guard<decltype(_staging_mutex)> lk{ _staging_mutex };
+                for (auto &ed : _staging_disconnect_events) {
+                    things.erase(std::remove(std::begin(things), std::end(things), ed), std::end(things));
+                }
+
+                for (auto &ed : _staging_connect_events) {
+                    things.push_back(ed);
+                }
+
+                _staging_disconnect_events.clear();
+                _staging_connect_events.clear();
+
+                _mutex.unlock();
+            }
 		}
 
 		template<typename _Rx_ = _Rx, std::enable_if_t<std::is_same<_Rx_, void>::value == false && std::is_same<_Rx_, bool>::value == false>* = nullptr>
 		std::vector<_Rx_> invoke(Args... args) {
 			std::vector<_Rx> return_values;
-			return_values.resize(things.size());
+            {
+                std::shared_lock<std::shared_mutex> lock(_mutex);
+                return_values.resize(things.size());
 
-			// Loop through all connected things and call
-			size_t i = 0;
-			for (auto s : things) {
-				return_values[i] = (s->invoke(std::forward<Args>(args)...));
-				++i;
-			}
+                // Loop through all connected things and call
+                size_t i = 0;
+                for (auto s : things) {
+                    return_values[i] = (s->invoke(std::forward<Args>(args)...));
+                    ++i;
+                }
+            }
+
+            if (_mutex.try_lock()) {
+                std::lock_guard<decltype(_staging_mutex)> lk{ _staging_mutex };
+                for (auto &ed : _staging_disconnect_events) {
+                    things.erase(std::remove(std::begin(things), std::end(things), ed), std::end(things));
+                }
+
+                for (auto &ed : _staging_connect_events) {
+                    things.push_back(ed);
+                }
+
+                _staging_disconnect_events.clear();
+                _staging_connect_events.clear();
+
+                _mutex.unlock();
+            }
 
 			return std::move(return_values);
 		}
 
 
 		template<typename _Rx_ = _Rx, std::enable_if_t<std::is_same<_Rx_, bool>::value == true>* = nullptr>
-		BoolCallResult invoke(Args... args) {
+        BoolCallResult invoke(Args... args) {
 
-			if (things.empty()) {
-				return BoolCallResult::NO_EVENT;
-			}
+            BoolCallResult result = MAX_RESULT;
 
-			BoolCallResult result = MAX_RESULT;
+            {
+                std::shared_lock<std::shared_mutex> lock(_mutex);
+                if (things.empty()) {
+                    return BoolCallResult::NO_EVENT;
+                }
 
-			// Loop through all connected things and call
-			for (auto s : things) {
-				const bool meow_result = (s->invoke(std::forward<Args>(args)...));
-				if (meow_result) {
-					if (result == BoolCallResult::MAX_RESULT) {
-						result = BoolCallResult::ALL_TRUE;
-					}
-					else if (result == BoolCallResult::ALL_FALSE) {
-						result = BoolCallResult::BOTH;
-					}
-				}
-				else {
-					if (result == BoolCallResult::ALL_TRUE || result == BoolCallResult::BOTH) {
-						result = BoolCallResult::BOTH;
-					}
-					else {
-						result = BoolCallResult::ALL_FALSE;
-					}
-				}
-			}
+
+
+                {
+                    // Loop through all connected things and call
+                    for (auto s : things) {
+                        const bool meow_result = (s->invoke(std::forward<Args>(args)...));
+                        if (meow_result) {
+                            if (result == BoolCallResult::MAX_RESULT) {
+                                result = BoolCallResult::ALL_TRUE;
+                            }
+                            else if (result == BoolCallResult::ALL_FALSE) {
+                                result = BoolCallResult::BOTH;
+                            }
+                        }
+                        else {
+                            if (result == BoolCallResult::ALL_TRUE || result == BoolCallResult::BOTH) {
+                                result = BoolCallResult::BOTH;
+                            }
+                            else {
+                                result = BoolCallResult::ALL_FALSE;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (_mutex.try_lock()) {
+                std::lock_guard<decltype(_staging_mutex)> lk{ _staging_mutex };
+                for (auto &ed : _staging_disconnect_events) {
+                    things.erase(std::remove(std::begin(things), std::end(things), ed), std::end(things));
+                }
+
+                for (auto &ed : _staging_connect_events) {
+                    things.push_back(ed);
+                }
+
+                _staging_disconnect_events.clear();
+                _staging_connect_events.clear();
+
+                _mutex.unlock();
+            }
 
 			return result;
 		}
 
 		EventDelegate<_Rx, Args...> & connect(EventDelegate<_Rx, Args...> &ed)
 		{
-			ed.add(this);
-			things.push_back(&ed);
-			return ed;
+            if (_mutex.try_lock()) {
+                ed.add(this);
+                things.push_back(&ed);
+                _mutex.unlock();
+                return ed;
+            }
+            else {
+                std::lock_guard<decltype(_staging_mutex)> lk{ _staging_mutex };
+                ed.add(this);
+                _staging_connect_events.emplace_back(&ed);
+                return ed;
+            }
 		}
 
 
@@ -305,7 +379,7 @@ namespace ksignals {
 			typedef T type;
 		};
 
-		EventDelegate<_Rx, Args...> & connect(std::function<_Rx(Args...)> fn, Event<_Rx, Args...> & /* Trick to avoid recursion */)
+		EventDelegate<_Rx, Args...> & connect(std::function<_Rx(Args...)> fn, EventBase<_Rx, Args...> & /* Trick to avoid recursion */)
 		{
 			event_delegate_ptr_tag tag;
 			auto f = new EventDelegateFunctionObject<_Rx, Args...>(*this, fn);
@@ -319,9 +393,32 @@ namespace ksignals {
 
 		void disconnect(EventDelegate<_Rx, Args...> &ed)
 		{
-			things.erase(std::remove(std::begin(things), std::end(things), &ed), std::end(things));
+            if (_mutex.try_lock()) {
+                things.erase(std::remove(std::begin(things), std::end(things), &ed), std::end(things));
+                _mutex.unlock();
+            }
+            else {
+                std::lock_guard<decltype(_staging_mutex)> lk{ _staging_mutex };
+                _staging_connect_events.erase(std::remove(std::begin(_staging_connect_events), std::end(_staging_connect_events), &ed), std::end(_staging_connect_events));
+                _staging_disconnect_events.emplace_back(&ed);
+            }
 		}
 	};
+
+
+    template<class T>
+    struct EventBaseImpl;
+
+    template<class _Ret,
+    class... _Types>
+    struct EventBaseImpl<_Ret(_Types...)>
+    {	/* determine type from argument list */
+        using type = EventBase<_Ret, _Types...>;
+    };
+
+    template<typename T>
+    class Event : public EventBaseImpl<T>::type
+    { };
 
 	class Delegate
 	{
@@ -355,14 +452,14 @@ namespace ksignals {
 
 		template <typename T, typename E, typename F, typename _Rx = void, typename... Args>
 		typename std::enable_if<!std::is_class<T>::value, void>::type
-			connect(Event<_Rx, Args...> &e, T* t)
+			connect(Event<_Rx(Args...)> &e, T* t)
 		{
 			auto f = new EventDelegateFunctionPointer<T, Args...>(e, t);
 			connect<Args...>(e, f);
 		}
 
 		template <typename T, typename _Rx = void, typename... Args>
-		void connect(Event<_Rx, Args...> &e, T* t, _Rx (T::*fn)(Args...))
+		void connect(Event<_Rx(Args...)> &e, T* t, _Rx (T::*fn)(Args...))
 		{
 			auto f = new EventDelegateMemberFunction<T, Args...>(e, t, fn);
 			connect<Args...>(e, f);
@@ -370,7 +467,7 @@ namespace ksignals {
 
 		template<typename F, typename _Rx = void, typename... Args>
 		std::enable_if_t<!std::is_pointer<std::decay_t<F>>::value>
-			connect(Event<_Rx, Args...> &e, F &&fn)
+			connect(Event<_Rx(Args...)> &e, F &&fn)
 		{
 			// As this is either std::bind result
 			// Or a lambda we can just pass it to the std::function overload
@@ -380,14 +477,14 @@ namespace ksignals {
 		}
 
 		template<typename _Rx = void, typename... Args>
-		void connect(Event<_Rx, Args...> &e, std::function<_Rx(Args...)> fn, delegate_func_object_tag)
+		void connect(Event<_Rx(Args...)> &e, std::function<_Rx(Args...)> fn, delegate_func_object_tag)
 		{
 			auto f = new EventDelegateFunctionObject<_Rx, Args...>(e, fn);
 			connect<_Rx, Args...>(e, f);
 		}
 
 		template<typename _Rx = void, typename... Args>
-		void connect(Event<_Rx, Args...> &e, EventDelegate<_Rx, Args...> *ed)
+		void connect(Event<_Rx(Args...)> &e, EventDelegate<_Rx, Args...> *ed)
 		{
 			e.connect(*ed);
 			v.push_back(ed);
