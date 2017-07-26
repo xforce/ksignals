@@ -455,14 +455,14 @@ namespace ksignals {
 			connect(Event<_Rx(Args...)> &e, T* t)
 		{
 			auto f = new EventDelegateFunctionPointer<T, Args...>(e, t);
-			connect<Args...>(e, f);
+			connect<_Rx, Args...>(e, f);
 		}
 
 		template <typename T, typename _Rx = void, typename... Args>
 		void connect(Event<_Rx(Args...)> &e, T* t, _Rx (T::*fn)(Args...))
 		{
-			auto f = new EventDelegateMemberFunction<T, Args...>(e, t, fn);
-			connect<Args...>(e, f);
+			auto f = new EventDelegateMemberFunction<T, _Rx, Args...>(e, t, fn);
+			connect<_Rx, Args...>(e, f);
 		}
 
 		template<typename F, typename _Rx = void, typename... Args>
