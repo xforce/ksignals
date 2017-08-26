@@ -74,7 +74,7 @@ namespace ksignals {
 			}
 
 			v.clear();
-		};
+		}
 
 		void add(EventBase<_Rx, Args...> *e)
 		{
@@ -90,7 +90,7 @@ namespace ksignals {
 		}
 
 
-		virtual _Rx invoke(Args &&...) { throw std::runtime_error("Meow"); };
+		virtual _Rx invoke(Args &&...) { throw std::runtime_error("Meow"); }
 	};
 
 	template<typename T, typename _Rx = void, typename... Args>
@@ -199,7 +199,7 @@ namespace ksignals {
             this->_staging_disconnect_events = std::move(other._staging_disconnect_events);
 
             return *this;
-        };
+        }
 
         EventBase(EventBase &&other) {
             for (auto i : other.things) {
@@ -211,7 +211,7 @@ namespace ksignals {
             this->things = std::move(other.things);
             this->_staging_connect_events = std::move(other._staging_connect_events);
             this->_staging_disconnect_events = std::move(other._staging_disconnect_events);
-        };
+        }
 
         EventBase& operator = (const EventBase&) = delete;
         EventBase(const EventBase&) = delete;
@@ -383,7 +383,7 @@ namespace ksignals {
 		EventDelegate<_Rx, Args...> & connect(T* t, _Rx(T::*fn)(Args...))
 		{
 			event_delegate_ptr_tag tag;
-			auto f = new <EventDelegateMemberFunction<T, _Rx, Args...>(*this, t, fn);
+			auto f = new EventDelegateMemberFunction<T, _Rx, Args...>(*this, t, fn);
 			return connect(static_cast<EventDelegate<_Rx, Args...> *>(f), tag);
 		}
 
