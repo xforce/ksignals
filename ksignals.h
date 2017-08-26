@@ -405,7 +405,7 @@ namespace ksignals {
 		EventDelegate<_Rx, Args...> & connect(std::function<_Rx(Args...)> fn, EventBase<_Rx, Args...> & /* Trick to avoid recursion */)
 		{
 			event_delegate_ptr_tag tag;
-			auto f = std::make_unique<EventDelegateFunctionObject<_Rx, Args...>>(*this, fn);
+			auto f = new EventDelegateFunctionObject<_Rx, Args...>(*this, fn);
 			return connect(static_cast<EventDelegate<_Rx, Args...> *>(f), tag);
 		}
 
@@ -473,14 +473,14 @@ namespace ksignals {
 		typename std::enable_if<!std::is_class<T>::value, void>::type
 			connect(Event<_Rx(Args...)> &e, T* t)
 		{
-			auto f = std::make_unique<EventDelegateFunctionPointer<T, Args...>>(e, t);
+			auto f = new EventDelegateFunctionPointer<T, Args...>(e, t);
 			connect<_Rx, Args...>(e, std::move(f));
 		}
 
 		template <typename T, typename _Rx = void, typename... Args>
 		void connect(Event<_Rx(Args...)> &e, T* t, _Rx (T::*fn)(Args...))
 		{
-			auto f = std::make_unique<EventDelegateMemberFunction<T, _Rx, Args...>>(e, t, fn);
+			auto f = new EventDelegateMemberFunction<T, _Rx, Args...>(e, t, fn);
 			connect<_Rx, Args...>(e, std::move(f));
 		}
 
@@ -498,15 +498,15 @@ namespace ksignals {
 		template<typename _Rx = void, typename... Args>
 		void connect(Event<_Rx(Args...)> &e, std::function<_Rx(Args...)> fn, delegate_func_object_tag)
 		{
-			auto f = std::make_unique<EventDelegateFunctionObject<_Rx, Args...>>(e, fn);
-			connect<_Rx, Args...>(e, std::move(f));
+			auto f = new EventDelegateFunctionObject<_Rx, Args...>(e, fn);
+			connect<_Rx, Args...>(e, f);
 		}
 
 		template<typename _Rx = void, typename... Args>
-		void connect(Event<_Rx(Args...)> &e, std::unique_ptr<EventDelegate<_Rx, Args...>> &&ed)
+		void connect(Event<_Rx(Args...)> &e, EventDelegate<_Rx, Args...> *ed)
 		{
-			e.connect(*ed.get());
-			v.emplace_back(std::forward<std::unique_ptr<EventDelegate<_Rx, Args...>>>(ed));
+			e.connect(*ed);
+			v.emplace_back(ed);
 		}
 
 	private:
